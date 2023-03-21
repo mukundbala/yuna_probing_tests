@@ -98,9 +98,14 @@ probe_extend = np.array( ##<base , shoulder , elbow>
 target = None
 state = "SETUP"  #SETUP , PROBE_PREP . PROBE_POS . PROBE_EXTEND . PROBE_POS
 step = 1
-max_step = 50
+max_step = 30
 current = getJoints()
 
+probe_pos_state_ = None
+probe_extend_state_ = None
+delta_x_ = None
+z_offset_ = None
+probing_theta_ = None
 p.setRealTimeSimulation(1)
 while True:
     current  = getJoints()
@@ -118,9 +123,28 @@ while True:
         state = "PROBE_EXTEND"
     
     elif state == "PROBE_EXTEND":
-        target = probe_extend
-        state = "PROBE_POS"
-    
+        delta_x = 0.30 #we extend out by 10cm
+        l = 0.325
+        temp = np.empty((1,18))
+        temp[0,:] = getJoints()
+        ef_positions = xmk.getLegPositions(temp)
+
+        theta_ = arcsin(delta_x / l)
+        z_offset = l - (l*cos(theta_))
+        print("PROBING DISTANCE: " , delta_x)
+        print("THETA TO ROTATE",theta_)
+        print("REQUIRED Z OFFSET",z_offset)
+        delta_x_ = delta_x
+        probing_theta_ = theta_
+        z_offset_ = z_offset
+
+        ef_positions[0,0:2] += delta_x
+        ef_positions[2,0:2] -= z_offset_
+        ef_positions[2,2:] -= z_offset_
+        target = xmk.getLegIK(ef_positions)
+        rotated_distance = abs(target[2] - current[2])
+        
+        state = "NONE"
     step_dist = target - current ##both follow our convention
     step_dist /= max_step
 
@@ -137,7 +161,31 @@ while True:
     p.setJointMotorControlArray(Yuna, actuators, controlMode=p.POSITION_CONTROL, targetPositions=jointToBullet(target),
                             positionGains=[0.5]*len(actuators),velocityGains=[1]*len(actuators),forces=forces)
 
+    if (state == "PROBE_EXTEND" or state == "NONE"):
+        print("STATE: " , state)
+        temp = np.empty((1,18))
+        temp[0,:] = getJoints()
+        joints = xmk.getLegPositions(temp)
+        if (state == "PROBE_EXTEND"):
+            probe_pos_state_ = joints
+        else:
+            probe_extend_state_ = joints
+        print(joints)
+        
+
+    if (state == "NONE"):
+        break
 
 p.disconnect()
 
+print("##############")
+print("PROBING_THETA",probing_theta_)
+print("DELTA_X",delta_x_)
+print("Z_OFFSET",z_offset_)
 
+print("BEFORE PROBING: " , probe_pos_state_)
+print("AFTER PROBING:" , probe_extend_state_)
+print("DIFFERENCE IN X: " , probe_extend_state_[0] - probe_pos_state_[0])
+print("DIFFERENCE IN Y: " , probe_extend_state_[1] - probe_pos_state_[1])
+print("DIFFERENCE IN Z: " , probe_extend_state_[2] - probe_pos_state_[2])
+print("##############")
